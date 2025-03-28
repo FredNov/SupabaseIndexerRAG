@@ -1,65 +1,86 @@
-# RAG Server
+# Markdown File Indexer
 
-A Retrieval-Augmented Generation (RAG) server implementation using FastMCP, Supabase, and OpenAI.
+A Python script that monitors a directory for Markdown files, processes their content, generates embeddings using OpenAI, and maintains a synchronized index in Supabase with vector search capabilities.
 
 ## Features
 
-- Semantic document search using embeddings
-- Document management (add/delete)
-- Flexible environment variable configuration
-- SSE transport support
+- Real-time monitoring of Markdown files
+- Automatic processing of new, modified, and deleted files
+- OpenAI embeddings generation
+- Supabase vector storage integration
+- Efficient change detection using file hashes
+- Comprehensive error handling and logging
+- Cross-platform compatibility
+
+## Prerequisites
+
+- Python 3.8 or higher
+- Supabase account with pgvector extension enabled
+- OpenAI API key
+- Required Python packages (listed in requirements.txt)
 
 ## Setup
 
-1. Clone the repository
-2. Create a `.env` file in the project root with the following variables:
-   ```
-   SUPABASE_URL=your_supabase_url
-   SUPABASE_ANON_KEY=your_supabase_anon_key
-   OPENAI_API_KEY=your_openai_api_key
-   OPENAI_MODEL=your_openai_model
-   DOCUMENTS_TABLE=your_documents_table
-   DEFAULT_SEARCH_LIMIT=5
-   ```
-
-   Alternatively, you can set these as system environment variables.
-
-3. Install dependencies:
+1. Clone this repository
+2. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
 
+3. Create a `.env` file with the following variables:
+   ```
+   OPENAI_API_KEY=your_openai_api_key
+   SUPABASE_URL=your_supabase_url
+   SUPABASE_ANON_KEY=your_supabase_anon_key
+   WATCH_DIR=path_to_watch
+   POLLING_INTERVAL=5
+   OPENAI_MODEL=text-embedding-3-small
+   ```
+
+4. Set up your Supabase database with the following table:
+   ```sql
+   CREATE TABLE documents (
+     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+     content TEXT NOT NULL,
+     metadata JSONB NOT NULL,
+     embedding vector(1536)
+   );
+   ```
+
 ## Usage
 
-Run the server:
+Run the script:
 ```bash
-python rag_server.py
+python markdown_indexer.py
 ```
 
-The server will start with SSE transport enabled.
+The script will:
+1. Start monitoring the specified directory for Markdown files
+2. Process any existing Markdown files
+3. Watch for new, modified, or deleted files
+4. Generate embeddings and update the Supabase database accordingly
 
-## API Endpoints
+## Logging
 
-- `search_documents`: Search for documents using semantic similarity
-- `add_document`: Add a new document with embedding
-- `delete_document`: Delete a document by ID
+Logs are written to both:
+- Console output
+- `markdown_indexer.log` file
 
-## Environment Variables
+## Error Handling
 
-The server looks for environment variables in the following order:
-1. `.env` file in the script directory
-2. System environment variables
+The script includes:
+- Retry mechanism for API calls
+- Comprehensive error logging
+- Graceful handling of file access errors
+- Rate limiting for OpenAI API calls
 
-Required variables:
-- `SUPABASE_URL`: Your Supabase project URL
-- `SUPABASE_ANON_KEY`: Your Supabase anonymous key
-- `OPENAI_API_KEY`: Your OpenAI API key
-- `OPENAI_MODEL`: The OpenAI model to use for embeddings
-- `DOCUMENTS_TABLE`: The name of your documents table in Supabase
+## Performance Considerations
 
-Optional variables:
-- `DEFAULT_SEARCH_LIMIT`: Maximum number of documents to return in search (default: 5)
+- Uses file hashing to avoid unnecessary updates
+- Implements connection pooling for Supabase
+- Efficient batch processing for multiple file changes
+- Configurable polling interval
 
-## License
+## Contributing
 
-MIT 
+Feel free to submit issues and enhancement requests! 
