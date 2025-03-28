@@ -50,6 +50,11 @@ class MarkdownProcessor:
         # Initialize Supabase client
         self.supabase = create_client(self.supabase_url, self.supabase_key)
         
+        # Initialize OpenAI client
+        if not self.openai_api_key:
+            raise ValueError("OpenAI API key must be provided in environment variables")
+        self.openai_client = OpenAI(api_key=self.openai_api_key)
+        
         # Load existing hashes
         self.processed_files = self.load_file_hashes()
         
