@@ -254,10 +254,18 @@ def main():
             for file in files:
                 file_path = os.path.join(root, file)
                 if processor.is_allowed_file(file_path):
-                    processor.processed_files[file_path] = processor.calculate_file_hash(file_path)
-                    doc_data = processor.process_markdown_file(file_path)
-                    if doc_data:
-                        processor.upsert_document(file_path, doc_data)
+                    # Calculate current hash
+                    current_hash = processor.calculate_file_hash(file_path)
+                    
+                    # Only process if file is new or hash has changed
+                    if file_path not in processor.processed_files or \
+                       processor.processed_files[file_path] != current_hash:
+                        logger.info(f"Processing changed file: {file_path}")
+                        doc_data = processor.process_markdown_file(file_path)
+                        if doc_data:
+                            processor.upsert_document(file_path, doc_data)
+                    else:
+                        logger.debug(f"Skipping unchanged file: {file_path}")
         
         # Save final state of hashes
         processor.save_file_hashes()
