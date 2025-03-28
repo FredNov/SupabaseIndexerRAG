@@ -30,21 +30,40 @@ load_dotenv()
 
 class MarkdownProcessor:
     def __init__(self):
-        self.openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
-        
-        # Initialize Supabase client without proxy
+        # Load and log environment variables
         supabase_url = os.getenv('SUPABASE_URL')
         supabase_key = os.getenv('SUPABASE_ANON_KEY')
+        watch_dir = os.path.abspath(os.getenv('WATCH_DIR', '.'))
+        polling_interval = int(os.getenv('POLLING_INTERVAL', '5'))
+        table_name = os.getenv('DOCUMENTS_TABLE', 'documents')
+        extensions = os.getenv('FILE_EXTENSIONS', '.md')
+        openai_model = os.getenv('OPENAI_MODEL', 'text-embedding-3-small')
+
+        # Log all configuration values
+        logger.info("=== Startup Configuration ===")
+        logger.info(f"Watch Directory: {watch_dir}")
+        logger.info(f"Polling Interval: {polling_interval} seconds")
+        logger.info(f"Table Name: {table_name}")
+        logger.info(f"File Extensions: {extensions}")
+        logger.info(f"OpenAI Model: {openai_model}")
+        logger.info(f"Supabase URL: {supabase_url}")
+        logger.info("Supabase Key: [REDACTED]")  # Don't log the actual key
+        logger.info("===========================")
+
+        # Initialize OpenAI client
+        self.openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+        
+        # Initialize Supabase client
         if not supabase_url or not supabase_key:
             raise ValueError("Supabase URL and key must be provided in environment variables")
-        
         self.supabase = create_client(supabase_url, supabase_key)
-        self.watch_dir = os.path.abspath(os.getenv('WATCH_DIR', '.'))
-        self.polling_interval = int(os.getenv('POLLING_INTERVAL', '5'))
-        self.table_name = os.getenv('DOCUMENTS_TABLE', 'documents')
+        
+        # Set instance variables
+        self.watch_dir = watch_dir
+        self.polling_interval = polling_interval
+        self.table_name = table_name
         
         # Get allowed file extensions from environment
-        extensions = os.getenv('FILE_EXTENSIONS', '.md')
         self.allowed_extensions = tuple(ext.strip() for ext in extensions.split(','))
         logger.info(f"Monitoring files with extensions: {self.allowed_extensions}")
         
