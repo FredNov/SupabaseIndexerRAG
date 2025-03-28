@@ -44,6 +44,11 @@ class MarkdownProcessor:
         self.table_name = os.getenv('DOCUMENTS_TABLE', 'documents')
         self.processed_files: Dict[str, str] = {}  # file_path -> hash mapping
         
+        # Get allowed file extensions from environment
+        extensions = os.getenv('FILE_EXTENSIONS', '.md')
+        self.allowed_extensions = tuple(ext.strip() for ext in extensions.split(','))
+        logger.info(f"Monitoring files with extensions: {self.allowed_extensions}")
+        
         logger.info(f"Initialized MarkdownProcessor to watch directory: {self.watch_dir}")
         self.check_table_exists()
 
@@ -157,12 +162,16 @@ class MarkdownProcessor:
             logger.error(f"Error deleting document for {file_path}: {str(e)}")
             raise
 
+    def is_allowed_file(self, file_path: str) -> bool:
+        """Check if the file has an allowed extension."""
+        return file_path.lower().endswith(self.allowed_extensions)
+
 class MarkdownHandler(FileSystemEventHandler):
     def __init__(self, processor: MarkdownProcessor):
         self.processor = processor
 
     def on_created(self, event):
-        if event.is_directory or not event.src_path.endswith('.md'):
+        if event.is_directory or not self.processor.is_allowed_file(event.src_path):
             return
         logger.info(f"New file detected: {event.src_path}")
         self.processor.processed_files[event.src_path] = self.processor.calculate_file_hash(event.src_path)
@@ -171,7 +180,7 @@ class MarkdownHandler(FileSystemEventHandler):
             self.processor.upsert_document(event.src_path, doc_data)
 
     def on_modified(self, event):
-        if event.is_directory or not event.src_path.endswith('.md'):
+        if event.is_directory or not self.processor.is_allowed_file(event.src_path):
             return
         logger.info(f"File modified: {event.src_path}")
         current_hash = self.processor.calculate_file_hash(event.src_path)
@@ -183,7 +192,7 @@ class MarkdownHandler(FileSystemEventHandler):
                 self.processor.upsert_document(event.src_path, doc_data)
 
     def on_deleted(self, event):
-        if event.is_directory or not event.src_path.endswith('.md'):
+        if event.is_directory or not self.processor.is_allowed_file(event.src_path):
             return
         logger.info(f"File deleted: {event.src_path}")
         self.processor.delete_document(event.src_path)
@@ -199,12 +208,12 @@ def main():
         observer = PollingObserver(timeout=processor.polling_interval)
         observer.schedule(event_handler, processor.watch_dir, recursive=True)
         
-        # Process existing markdown files
-        logger.info("Processing existing markdown files...")
+        # Process existing files with allowed extensions
+        logger.info("Processing existing files...")
         for root, _, files in os.walk(processor.watch_dir):
             for file in files:
-                if file.endswith('.md'):
-                    file_path = os.path.join(root, file)
+                file_path = os.path.join(root, file)
+                if processor.is_allowed_file(file_path):
                     processor.processed_files[file_path] = processor.calculate_file_hash(file_path)
                     doc_data = processor.process_markdown_file(file_path)
                     if doc_data:
