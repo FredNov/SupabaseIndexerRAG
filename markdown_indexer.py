@@ -55,7 +55,8 @@ class MarkdownProcessor:
             raise ValueError("OpenAI API key must be provided in environment variables")
         self.openai_client = OpenAI(api_key=self.openai_api_key)
         
-        # Load existing hashes
+        # Initialize file hashes
+        self.hashes_file = Path('file_hashes.json')
         self.processed_files = self.load_file_hashes()
         
         # Log startup configuration
@@ -74,11 +75,6 @@ class MarkdownProcessor:
                         for file in files if self.is_allowed_file(os.path.join(root, file)))
         logger.info(f"Found {file_count} files in watch directory")
         logger.info(f"Loaded {len(self.processed_files)} existing hashes from file_hashes.json")
-        
-        # Initialize processed files dictionary and load existing hashes
-        self.processed_files: Dict[str, str] = {}  # file_path -> hash mapping
-        self.hashes_file = Path('file_hashes.json')
-        self.load_file_hashes()
         
         logger.info(f"Initialized MarkdownProcessor to watch directory: {self.watch_dir}")
         self.check_table_exists()
