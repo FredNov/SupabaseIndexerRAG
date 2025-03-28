@@ -30,42 +30,45 @@ load_dotenv()
 
 class MarkdownProcessor:
     def __init__(self):
-        # Load and log environment variables
-        supabase_url = os.getenv('SUPABASE_URL')
-        supabase_key = os.getenv('SUPABASE_ANON_KEY')
-        watch_dir = os.path.abspath(os.getenv('WATCH_DIR', '.'))
-        polling_interval = int(os.getenv('POLLING_INTERVAL', '5'))
-        table_name = os.getenv('DOCUMENTS_TABLE', 'documents')
-        extensions = os.getenv('FILE_EXTENSIONS', '.md')
-        openai_model = os.getenv('OPENAI_MODEL', 'text-embedding-3-small')
-
-        # Log all configuration values
-        logger.info("=== Startup Configuration ===")
-        logger.info(f"Watch Directory: {watch_dir}")
-        logger.info(f"Polling Interval: {polling_interval} seconds")
-        logger.info(f"Table Name: {table_name}")
-        logger.info(f"File Extensions: {extensions}")
-        logger.info(f"OpenAI Model: {openai_model}")
-        logger.info(f"Supabase URL: {supabase_url}")
-        logger.info("Supabase Key: [REDACTED]")  # Don't log the actual key
-        logger.info("===========================")
-
-        # Initialize OpenAI client
-        self.openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+        # Load environment variables
+        self.supabase_url = os.getenv('SUPABASE_URL')
+        self.supabase_key = os.getenv('SUPABASE_ANON_KEY')
+        self.table_name = os.getenv('DOCUMENTS_TABLE')
+        self.openai_api_key = os.getenv('OPENAI_API_KEY')
+        self.openai_model = os.getenv('OPENAI_MODEL', 'text-embedding-3-small')
+        self.watch_dir = os.getenv('WATCH_DIR', './docs')
+        self.polling_interval = int(os.getenv('POLLING_INTERVAL', '300'))
+        
+        # Get allowed extensions from environment variable
+        extensions_str = os.getenv('FILE_EXTENSIONS', '.md,.txt')
+        self.allowed_extensions = [ext.strip() for ext in extensions_str.split(',')]
+        
+        # Get excluded folders from environment variable
+        exclude_folders_str = os.getenv('EXCLUDE_FOLDERS', '.git,node_modules,venv,__pycache__')
+        self.excluded_folders = [folder.strip() for folder in exclude_folders_str.split(',')]
         
         # Initialize Supabase client
-        if not supabase_url or not supabase_key:
-            raise ValueError("Supabase URL and key must be provided in environment variables")
-        self.supabase = create_client(supabase_url, supabase_key)
+        self.supabase = create_client(self.supabase_url, self.supabase_key)
         
-        # Set instance variables
-        self.watch_dir = watch_dir
-        self.polling_interval = polling_interval
-        self.table_name = table_name
+        # Load existing hashes
+        self.processed_files = self.load_file_hashes()
         
-        # Get allowed file extensions from environment
-        self.allowed_extensions = tuple(ext.strip() for ext in extensions.split(','))
-        logger.info(f"Monitoring files with extensions: {self.allowed_extensions}")
+        # Log startup configuration
+        logger.info("Starting Markdown Indexer with configuration:")
+        logger.info(f"Supabase URL: {self.supabase_url}")
+        logger.info(f"Supabase Key: {'*' * len(self.supabase_key)}")
+        logger.info(f"Watch Directory: {os.path.abspath(self.watch_dir)}")
+        logger.info(f"Polling Interval: {self.polling_interval} seconds")
+        logger.info(f"Table Name: {self.table_name}")
+        logger.info(f"File Extensions: {', '.join(self.allowed_extensions)}")
+        logger.info(f"OpenAI Model: {self.openai_model}")
+        logger.info(f"Excluded Folders: {', '.join(self.excluded_folders)}")
+        
+        # Count files in watch directory
+        file_count = sum(1 for root, _, files in os.walk(self.watch_dir)
+                        for file in files if self.is_allowed_file(os.path.join(root, file)))
+        logger.info(f"Found {file_count} files in watch directory")
+        logger.info(f"Loaded {len(self.processed_files)} existing hashes from file_hashes.json")
         
         # Initialize processed files dictionary and load existing hashes
         self.processed_files: Dict[str, str] = {}  # file_path -> hash mapping
@@ -222,8 +225,14 @@ class MarkdownProcessor:
             raise
 
     def is_allowed_file(self, file_path: str) -> bool:
-        """Check if the file has an allowed extension."""
-        return file_path.lower().endswith(self.allowed_extensions)
+        """Check if file has allowed extension and is not in excluded folder"""
+        # Check if file is in an excluded folder
+        for folder in self.excluded_folders:
+            if folder in file_path.split(os.sep):
+                return False
+                
+        # Check file extension
+        return any(file_path.lower().endswith(ext.lower()) for ext in self.allowed_extensions)
 
 class MarkdownHandler(FileSystemEventHandler):
     def __init__(self, processor: MarkdownProcessor):
@@ -299,7 +308,7 @@ def main():
         
         # Start monitoring
         observer.start()
-        logger.info(f"Started monitoring {processor.watch_dir} for files with extensions: {processor.allowed_extensions}")
+        logger.info(f"Started monitoring {processor.watch_dir} for files with extensions: {', '.join(processor.allowed_extensions)}")
         
         try:
             while True:
