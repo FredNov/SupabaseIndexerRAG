@@ -79,17 +79,15 @@ class MarkdownProcessor:
         self.check_table_exists()
 
     def load_file_hashes(self):
-        """Load file hashes from disk if they exist."""
+        """Load existing file hashes from JSON file."""
         try:
-            if self.hashes_file.exists():
-                with open(self.hashes_file, 'r') as f:
-                    self.processed_files = json.load(f)
-                logger.info(f"Loaded {len(self.processed_files)} file hashes from disk")
-            else:
-                logger.info("No existing file hashes found, starting fresh")
+            if os.path.exists('file_hashes.json'):
+                with open('file_hashes.json', 'r') as f:
+                    return json.load(f)
+            return {}  # Return empty dict if file doesn't exist
         except Exception as e:
             logger.error(f"Error loading file hashes: {str(e)}")
-            self.processed_files = {}
+            return {}  # Return empty dict on error
 
     def save_file_hashes(self):
         """Save file hashes to disk."""
