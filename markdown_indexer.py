@@ -42,15 +42,41 @@ class MarkdownProcessor:
         self.watch_dir = os.path.abspath(os.getenv('WATCH_DIR', '.'))
         self.polling_interval = int(os.getenv('POLLING_INTERVAL', '5'))
         self.table_name = os.getenv('DOCUMENTS_TABLE', 'documents')
-        self.processed_files: Dict[str, str] = {}  # file_path -> hash mapping
         
         # Get allowed file extensions from environment
         extensions = os.getenv('FILE_EXTENSIONS', '.md')
         self.allowed_extensions = tuple(ext.strip() for ext in extensions.split(','))
         logger.info(f"Monitoring files with extensions: {self.allowed_extensions}")
         
+        # Initialize processed files dictionary and load existing hashes
+        self.processed_files: Dict[str, str] = {}  # file_path -> hash mapping
+        self.hashes_file = Path('file_hashes.json')
+        self.load_file_hashes()
+        
         logger.info(f"Initialized MarkdownProcessor to watch directory: {self.watch_dir}")
         self.check_table_exists()
+
+    def load_file_hashes(self):
+        """Load file hashes from disk if they exist."""
+        try:
+            if self.hashes_file.exists():
+                with open(self.hashes_file, 'r') as f:
+                    self.processed_files = json.load(f)
+                logger.info(f"Loaded {len(self.processed_files)} file hashes from disk")
+            else:
+                logger.info("No existing file hashes found, starting fresh")
+        except Exception as e:
+            logger.error(f"Error loading file hashes: {str(e)}")
+            self.processed_files = {}
+
+    def save_file_hashes(self):
+        """Save file hashes to disk."""
+        try:
+            with open(self.hashes_file, 'w') as f:
+                json.dump(self.processed_files, f)
+            logger.info(f"Saved {len(self.processed_files)} file hashes to disk")
+        except Exception as e:
+            logger.error(f"Error saving file hashes: {str(e)}")
 
     def check_table_exists(self):
         """Check if the table exists and log a warning if it doesn't."""
@@ -102,11 +128,25 @@ class MarkdownProcessor:
 
     def calculate_file_hash(self, file_path: str) -> str:
         """Calculate SHA-256 hash of file content."""
-        sha256_hash = hashlib.sha256()
-        with open(file_path, "rb") as f:
-            for byte_block in iter(lambda: f.read(4096), b""):
-                sha256_hash.update(byte_block)
-        return sha256_hash.hexdigest()
+        try:
+            # Check if we already have a hash for this file
+            if file_path in self.processed_files:
+                return self.processed_files[file_path]
+
+            sha256_hash = hashlib.sha256()
+            with open(file_path, "rb") as f:
+                for byte_block in iter(lambda: f.read(4096), b""):
+                    sha256_hash.update(byte_block)
+            hash_value = sha256_hash.hexdigest()
+            
+            # Save the new hash
+            self.processed_files[file_path] = hash_value
+            self.save_file_hashes()
+            
+            return hash_value
+        except Exception as e:
+            logger.error(f"Error calculating hash for {file_path}: {str(e)}")
+            raise
 
     def process_markdown_file(self, file_path: str) -> Optional[Dict]:
         """Process a markdown file and return document data."""
@@ -219,9 +259,12 @@ def main():
                     if doc_data:
                         processor.upsert_document(file_path, doc_data)
         
+        # Save final state of hashes
+        processor.save_file_hashes()
+        
         # Start monitoring
         observer.start()
-        logger.info(f"Started monitoring {processor.watch_dir} for markdown files")
+        logger.info(f"Started monitoring {processor.watch_dir} for files with extensions: {processor.allowed_extensions}")
         
         try:
             while True:
@@ -229,6 +272,8 @@ def main():
         except KeyboardInterrupt:
             observer.stop()
             logger.info("Stopped monitoring")
+            # Save hashes before exiting
+            processor.save_file_hashes()
         
         observer.join()
     except Exception as e:
