@@ -273,13 +273,21 @@ def main():
             for file in files:
                 file_path = os.path.join(root, file)
                 if processor.is_allowed_file(file_path):
+                    # Check if file exists in Supabase
+                    try:
+                        response = processor.supabase.table(processor.table_name).select('id').eq('metadata->>path', file_path).execute()
+                        exists_in_supabase = bool(response.data)
+                    except Exception as e:
+                        logger.error(f"Error checking file existence in Supabase: {str(e)}")
+                        exists_in_supabase = False
+                    
                     # Calculate current hash
                     current_hash = processor.calculate_file_hash(file_path)
                     
-                    # Only process if file is new or hash has changed
-                    if file_path not in processor.processed_files or \
+                    # Process if file is new, hash has changed, or doesn't exist in Supabase
+                    if not exists_in_supabase or file_path not in processor.processed_files or \
                        processor.processed_files[file_path] != current_hash:
-                        logger.info(f"Processing changed file: {file_path}")
+                        logger.info(f"Processing file: {file_path} (exists in Supabase: {exists_in_supabase})")
                         doc_data = processor.process_markdown_file(file_path)
                         if doc_data:
                             processor.upsert_document(file_path, doc_data)
