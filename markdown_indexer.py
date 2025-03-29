@@ -32,8 +32,8 @@ def load_env_vars():
     if not env_path:
         raise FileNotFoundError("No .env file found. Please create one using .env.example as template.")
     
-    # Load environment variables
-    load_dotenv(env_path)
+    # Load environment variables from .env file only
+    load_dotenv(env_path, override=True)
     
     # Required environment variables
     required_vars = {
@@ -52,48 +52,58 @@ def load_env_vars():
         'EXCLUDE_FOLDERS': '.git,node_modules,venv,__pycache__'
     }
     
-    # Validate required variables
+    # Create a dictionary to store all environment variables
+    env_vars = {}
+    
+    # First check required variables
     missing_vars = []
     for var, description in required_vars.items():
-        if not os.getenv(var):
+        value = os.getenv(var)
+        if not value:
             missing_vars.append(f"{var} ({description})")
+        env_vars[var] = value
     
     if missing_vars:
-        raise ValueError(f"Missing required environment variables: {', '.join(missing_vars)}")
+        raise ValueError(f"Missing required environment variables in .env file: {', '.join(missing_vars)}")
+    
+    # Then handle optional variables
+    for var, default in optional_vars.items():
+        value = os.getenv(var)
+        env_vars[var] = value if value is not None else default
     
     # Log configuration (masking sensitive data)
-    logger.info("Environment configuration loaded:")
-    logger.info(f"OpenAI Model: {os.getenv('OPENAI_MODEL', optional_vars['OPENAI_MODEL'])}")
-    logger.info(f"Watch Directory: {os.path.abspath(os.getenv('WATCH_DIR', optional_vars['WATCH_DIR']))}")
-    logger.info(f"Polling Interval: {os.getenv('POLLING_INTERVAL', optional_vars['POLLING_INTERVAL'])} seconds")
-    logger.info(f"Table Name: {os.getenv('DOCUMENTS_TABLE')}")
-    logger.info(f"File Extensions: {os.getenv('FILE_EXTENSIONS', optional_vars['FILE_EXTENSIONS'])}")
-    logger.info(f"Excluded Folders: {os.getenv('EXCLUDE_FOLDERS', optional_vars['EXCLUDE_FOLDERS'])}")
-    logger.info(f"Supabase URL: {os.getenv('SUPABASE_URL')}")
-    logger.info(f"Supabase Key: {'*' * len(os.getenv('SUPABASE_ANON_KEY', ''))}")
-    logger.info(f"OpenAI Key: {'*' * len(os.getenv('OPENAI_API_KEY', ''))}")
+    logger.info("Environment configuration loaded from .env file:")
+    logger.info(f"OpenAI Model: {env_vars['OPENAI_MODEL']}")
+    logger.info(f"Watch Directory: {os.path.abspath(env_vars['WATCH_DIR'])}")
+    logger.info(f"Polling Interval: {env_vars['POLLING_INTERVAL']} seconds")
+    logger.info(f"Table Name: {env_vars['DOCUMENTS_TABLE']}")
+    logger.info(f"File Extensions: {env_vars['FILE_EXTENSIONS']}")
+    logger.info(f"Excluded Folders: {env_vars['EXCLUDE_FOLDERS']}")
+    logger.info(f"Supabase URL: {env_vars['SUPABASE_URL']}")
+    logger.info(f"Supabase Key: {'*' * len(env_vars['SUPABASE_ANON_KEY'])}")
+    logger.info(f"OpenAI Key: {'*' * len(env_vars['OPENAI_API_KEY'])}")
+    
+    return env_vars
 
 class MarkdownProcessor:
     def __init__(self):
         # Load and validate environment variables
-        load_env_vars()
+        env_vars = load_env_vars()
         
-        # Get environment variables
-        self.supabase_url = os.getenv('SUPABASE_URL')
-        self.supabase_key = os.getenv('SUPABASE_ANON_KEY')
-        self.table_name = os.getenv('DOCUMENTS_TABLE')
-        self.openai_api_key = os.getenv('OPENAI_API_KEY')
-        self.openai_model = os.getenv('OPENAI_MODEL', 'text-embedding-3-small')
-        self.watch_dir = os.getenv('WATCH_DIR', './docs')
-        self.polling_interval = int(os.getenv('POLLING_INTERVAL', '300'))
+        # Get environment variables from the loaded dictionary
+        self.supabase_url = env_vars['SUPABASE_URL']
+        self.supabase_key = env_vars['SUPABASE_ANON_KEY']
+        self.table_name = env_vars['DOCUMENTS_TABLE']
+        self.openai_api_key = env_vars['OPENAI_API_KEY']
+        self.openai_model = env_vars['OPENAI_MODEL']
+        self.watch_dir = env_vars['WATCH_DIR']
+        self.polling_interval = int(env_vars['POLLING_INTERVAL'])
         
         # Get allowed extensions from environment variable
-        extensions_str = os.getenv('FILE_EXTENSIONS', '.md,.txt')
-        self.allowed_extensions = [ext.strip() for ext in extensions_str.split(',')]
+        self.allowed_extensions = [ext.strip() for ext in env_vars['FILE_EXTENSIONS'].split(',')]
         
         # Get excluded folders from environment variable
-        exclude_folders_str = os.getenv('EXCLUDE_FOLDERS', '.git,node_modules,venv,__pycache__')
-        self.excluded_folders = [folder.strip() for folder in exclude_folders_str.split(',')]
+        self.excluded_folders = [folder.strip() for folder in env_vars['EXCLUDE_FOLDERS'].split(',')]
         
         # Initialize Supabase client
         self.supabase = create_client(self.supabase_url, self.supabase_key)
