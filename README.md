@@ -4,20 +4,20 @@ A Python script that monitors a directory for Markdown files, processes their co
 
 ## Features
 
-- Real-time monitoring of Markdown files
-- Automatic processing of new, modified, and deleted files
-- OpenAI embeddings generation
-- Supabase vector storage integration
-- Efficient change detection using file hashes
-- Comprehensive error handling and logging
-- Cross-platform compatibility
+* Real-time monitoring of Markdown files
+* Automatic processing of new, modified, and deleted files
+* OpenAI embeddings generation
+* Supabase vector storage integration
+* Efficient change detection using file hashes
+* Comprehensive error handling and logging
+* Cross-platform compatibility
 
 ## Prerequisites
 
-- Python 3.8 or higher
-- Supabase account with pgvector extension enabled
-- OpenAI API key
-- Required Python packages (listed in requirements.txt)
+* Python 3.8 or higher
+* Supabase account with pgvector extension enabled
+* OpenAI API key
+* Required Python packages (listed in requirements.txt)
 
 ## Setup
 
@@ -26,7 +26,6 @@ A Python script that monitors a directory for Markdown files, processes their co
    ```bash
    pip install -r requirements.txt
    ```
-
 3. Create a `.env` file with the following variables:
    ```
    OPENAI_API_KEY=your_openai_api_key
@@ -36,7 +35,6 @@ A Python script that monitors a directory for Markdown files, processes their co
    POLLING_INTERVAL=5
    OPENAI_MODEL=text-embedding-3-small
    ```
-
 4. Set up your Supabase database with the following table:
    ```sql
    CREATE TABLE documents (
@@ -63,23 +61,23 @@ The script will:
 ## Logging
 
 Logs are written to both:
-- Console output
-- `markdown_indexer.log` file
+* Console output
+* `markdown_indexer.log` file
 
 ## Error Handling
 
 The script includes:
-- Retry mechanism for API calls
-- Comprehensive error logging
-- Graceful handling of file access errors
-- Rate limiting for OpenAI API calls
+* Retry mechanism for API calls
+* Comprehensive error logging
+* Graceful handling of file access errors
+* Rate limiting for OpenAI API calls
 
 ## Performance Considerations
 
-- Uses file hashing to avoid unnecessary updates
-- Implements connection pooling for Supabase
-- Efficient batch processing for multiple file changes
-- Configurable polling interval
+* Uses file hashing to avoid unnecessary updates
+* Implements connection pooling for Supabase
+* Efficient batch processing for multiple file changes
+* Configurable polling interval
 
 ## Contributing
 

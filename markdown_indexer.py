@@ -55,10 +55,6 @@ class MarkdownProcessor:
             raise ValueError("OpenAI API key must be provided in environment variables")
         self.openai_client = OpenAI(api_key=self.openai_api_key)
         
-        # Initialize file hashes
-        self.hashes_file = Path('file_hashes.json')
-        self.processed_files = self.load_file_hashes()
-        
         # Log startup configuration
         logger.info("Starting Markdown Indexer with configuration:")
         logger.info(f"Supabase URL: {self.supabase_url}")
@@ -74,30 +70,9 @@ class MarkdownProcessor:
         file_count = sum(1 for root, _, files in os.walk(self.watch_dir)
                         for file in files if self.is_allowed_file(os.path.join(root, file)))
         logger.info(f"Found {file_count} files in watch directory")
-        logger.info(f"Loaded {len(self.processed_files)} existing hashes from file_hashes.json")
         
         logger.info(f"Initialized MarkdownProcessor to watch directory: {self.watch_dir}")
         self.check_table_exists()
-
-    def load_file_hashes(self):
-        """Load existing file hashes from JSON file."""
-        try:
-            if os.path.exists('file_hashes.json'):
-                with open('file_hashes.json', 'r') as f:
-                    return json.load(f)
-            return {}  # Return empty dict if file doesn't exist
-        except Exception as e:
-            logger.error(f"Error loading file hashes: {str(e)}")
-            return {}  # Return empty dict on error
-
-    def save_file_hashes(self):
-        """Save file hashes to disk."""
-        try:
-            with open(self.hashes_file, 'w') as f:
-                json.dump(self.processed_files, f)
-            logger.info(f"Saved {len(self.processed_files)} file hashes to disk")
-        except Exception as e:
-            logger.error(f"Error saving file hashes: {str(e)}")
 
     def check_table_exists(self):
         """Check if the table exists and log a warning if it doesn't."""
@@ -150,21 +125,11 @@ class MarkdownProcessor:
     def calculate_file_hash(self, file_path: str) -> str:
         """Calculate SHA-256 hash of file content."""
         try:
-            # Check if we already have a hash for this file
-            if file_path in self.processed_files:
-                return self.processed_files[file_path]
-
             sha256_hash = hashlib.sha256()
             with open(file_path, "rb") as f:
                 for byte_block in iter(lambda: f.read(4096), b""):
                     sha256_hash.update(byte_block)
-            hash_value = sha256_hash.hexdigest()
-            
-            # Save the new hash
-            self.processed_files[file_path] = hash_value
-            self.save_file_hashes()
-            
-            return hash_value
+            return sha256_hash.hexdigest()
         except Exception as e:
             logger.error(f"Error calculating hash for {file_path}: {str(e)}")
             raise
@@ -177,13 +142,17 @@ class MarkdownProcessor:
 
             # Generate embedding
             embedding = self.generate_embedding(content)
+            
+            # Calculate file hash
+            file_hash = self.calculate_file_hash(file_path)
 
             # Prepare metadata
             metadata = {
                 'filename': os.path.basename(file_path),
                 'path': file_path,
                 'last_modified': datetime.fromtimestamp(os.path.getmtime(file_path)).isoformat(),
-                'file_size': os.path.getsize(file_path)
+                'file_size': os.path.getsize(file_path),
+                'file_hash': file_hash  # Store hash in metadata
             }
 
             return {
@@ -241,7 +210,6 @@ class MarkdownHandler(FileSystemEventHandler):
         if event.is_directory or not self.processor.is_allowed_file(event.src_path):
             return
         logger.info(f"New file detected: {event.src_path}")
-        self.processor.processed_files[event.src_path] = self.processor.calculate_file_hash(event.src_path)
         doc_data = self.processor.process_markdown_file(event.src_path)
         if doc_data:
             self.processor.upsert_document(event.src_path, doc_data)
@@ -250,21 +218,60 @@ class MarkdownHandler(FileSystemEventHandler):
         if event.is_directory or not self.processor.is_allowed_file(event.src_path):
             return
         logger.info(f"File modified: {event.src_path}")
-        current_hash = self.processor.calculate_file_hash(event.src_path)
-        if event.src_path not in self.processor.processed_files or \
-           self.processor.processed_files[event.src_path] != current_hash:
-            self.processor.processed_files[event.src_path] = current_hash
-            doc_data = self.processor.process_markdown_file(event.src_path)
-            if doc_data:
-                self.processor.upsert_document(event.src_path, doc_data)
+        doc_data = self.processor.process_markdown_file(event.src_path)
+        if doc_data:
+            self.processor.upsert_document(event.src_path, doc_data)
 
     def on_deleted(self, event):
         if event.is_directory or not self.processor.is_allowed_file(event.src_path):
             return
         logger.info(f"File deleted: {event.src_path}")
         self.processor.delete_document(event.src_path)
-        if event.src_path in self.processor.processed_files:
-            del self.processor.processed_files[event.src_path]
+
+    def on_moved(self, event):
+        """Handle file moves/renames."""
+        if event.is_directory:
+            return
+            
+        # Handle source file (old path)
+        if self.processor.is_allowed_file(event.src_path):
+            logger.info(f"File moved/renamed from: {event.src_path}")
+            self.processor.delete_document(event.src_path)
+            
+        # Handle destination file (new path)
+        if self.processor.is_allowed_file(event.dest_path):
+            logger.info(f"File moved/renamed to: {event.dest_path}")
+            doc_data = self.processor.process_markdown_file(event.dest_path)
+            if doc_data:
+                self.processor.upsert_document(event.dest_path, doc_data)
+
+def check_and_remove_deleted_files(processor):
+    """Check for and remove database entries for files that no longer exist."""
+    try:
+        # Get all files from database
+        response = processor.supabase.table(processor.table_name).select('metadata').execute()
+        db_files = [doc['metadata']['path'] for doc in response.data]
+        
+        # Get all existing files in watch directory
+        existing_files = []
+        for root, _, files in os.walk(processor.watch_dir):
+            for file in files:
+                file_path = os.path.join(root, file)
+                if processor.is_allowed_file(file_path):
+                    existing_files.append(file_path)
+        
+        # Find files that are in database but not in filesystem
+        deleted_files = set(db_files) - set(existing_files)
+        
+        # Remove deleted files from database
+        for file_path in deleted_files:
+            logger.info(f"Removing deleted file from database: {file_path}")
+            processor.delete_document(file_path)
+            
+        if deleted_files:
+            logger.info(f"Removed {len(deleted_files)} deleted files from database")
+    except Exception as e:
+        logger.error(f"Error checking for deleted files: {str(e)}")
 
 def main():
     try:
@@ -275,35 +282,36 @@ def main():
         observer = PollingObserver(timeout=processor.polling_interval)
         observer.schedule(event_handler, processor.watch_dir, recursive=True)
         
+        # Check for and remove deleted files from database
+        check_and_remove_deleted_files(processor)
+        
         # Process existing files with allowed extensions
         logger.info("Processing existing files...")
         for root, _, files in os.walk(processor.watch_dir):
             for file in files:
                 file_path = os.path.join(root, file)
                 if processor.is_allowed_file(file_path):
-                    # Check if file exists in Supabase
+                    # Check if file exists in Supabase and get its hash
                     try:
-                        response = processor.supabase.table(processor.table_name).select('id').eq('metadata->>path', file_path).execute()
+                        response = processor.supabase.table(processor.table_name).select('id, metadata').eq('metadata->>path', file_path).execute()
                         exists_in_supabase = bool(response.data)
+                        stored_hash = response.data[0]['metadata'].get('file_hash') if exists_in_supabase else None
                     except Exception as e:
                         logger.error(f"Error checking file existence in Supabase: {str(e)}")
                         exists_in_supabase = False
+                        stored_hash = None
                     
                     # Calculate current hash
                     current_hash = processor.calculate_file_hash(file_path)
                     
                     # Process if file is new, hash has changed, or doesn't exist in Supabase
-                    if not exists_in_supabase or file_path not in processor.processed_files or \
-                       processor.processed_files[file_path] != current_hash:
-                        logger.info(f"Processing file: {file_path} (exists in Supabase: {exists_in_supabase})")
+                    if not exists_in_supabase or stored_hash != current_hash:
+                        logger.info(f"Processing file: {file_path} (exists in Supabase: {exists_in_supabase}, hash changed: {stored_hash != current_hash if stored_hash else True})")
                         doc_data = processor.process_markdown_file(file_path)
                         if doc_data:
                             processor.upsert_document(file_path, doc_data)
                     else:
                         logger.debug(f"Skipping unchanged file: {file_path}")
-        
-        # Save final state of hashes
-        processor.save_file_hashes()
         
         # Start monitoring
         observer.start()
@@ -315,8 +323,6 @@ def main():
         except KeyboardInterrupt:
             observer.stop()
             logger.info("Stopped monitoring")
-            # Save hashes before exiting
-            processor.save_file_hashes()
         
         observer.join()
     except Exception as e:
