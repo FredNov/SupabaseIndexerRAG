@@ -210,13 +210,28 @@ class MarkdownProcessor:
 
             # Prepare metadata
             metadata = {
+                # Original metadata fields
+                'loc': None,  # Keep original field
+                'source': 'file_system',  # Changed from 'test' to indicate source
+                'file_id': file_hash,  # Use file hash as unique identifier
+                'blobType': 'markdown',  # Changed from null to indicate content type
+                
+                # Additional metadata fields
                 'filename': os.path.basename(file_path),
                 'path': file_path,
                 'last_modified': datetime.fromtimestamp(os.path.getmtime(file_path)).isoformat(),
                 'file_size': os.path.getsize(file_path),
-                'file_hash': file_hash,  # Store hash in metadata
-                'content_length': len(content),  # Store content length
-                'is_truncated': len(content) > 7000 * 4  # Flag if content was truncated
+                'content_length': len(content),
+                'is_truncated': len(content) > 7000 * 4,
+                'file_extension': os.path.splitext(file_path)[1],
+                'directory': os.path.dirname(file_path),
+                'created_at': datetime.fromtimestamp(os.path.getctime(file_path)).isoformat(),
+                'file_hash': file_hash,
+                'processing_info': {
+                    'processed_at': datetime.now().isoformat(),
+                    'model': self.openai_model,
+                    'embedding_dimension': 1536
+                }
             }
 
             return {
