@@ -13,6 +13,7 @@ logging.basicConfig(
         logging.FileHandler('cleanup.log'),
         logging.StreamHandler()
     ]
+    
 )
 logger = logging.getLogger(__name__)
 

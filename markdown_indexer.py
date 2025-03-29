@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional, List
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 from watchdog.observers.polling import PollingObserver
 from watchdog.events import FileSystemEventHandler
 from openai import OpenAI
@@ -25,12 +25,60 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Load environment variables
-load_dotenv()
+def load_env_vars():
+    """Load and validate environment variables from .env file."""
+    # Find .env file
+    env_path = find_dotenv()
+    if not env_path:
+        raise FileNotFoundError("No .env file found. Please create one using .env.example as template.")
+    
+    # Load environment variables
+    load_dotenv(env_path)
+    
+    # Required environment variables
+    required_vars = {
+        'OPENAI_API_KEY': 'OpenAI API key',
+        'SUPABASE_URL': 'Supabase URL',
+        'SUPABASE_ANON_KEY': 'Supabase anonymous key',
+        'DOCUMENTS_TABLE': 'Supabase table name'
+    }
+    
+    # Optional environment variables with defaults
+    optional_vars = {
+        'OPENAI_MODEL': 'text-embedding-3-small',
+        'WATCH_DIR': './docs',
+        'POLLING_INTERVAL': '300',
+        'FILE_EXTENSIONS': '.md,.txt',
+        'EXCLUDE_FOLDERS': '.git,node_modules,venv,__pycache__'
+    }
+    
+    # Validate required variables
+    missing_vars = []
+    for var, description in required_vars.items():
+        if not os.getenv(var):
+            missing_vars.append(f"{var} ({description})")
+    
+    if missing_vars:
+        raise ValueError(f"Missing required environment variables: {', '.join(missing_vars)}")
+    
+    # Log configuration (masking sensitive data)
+    logger.info("Environment configuration loaded:")
+    logger.info(f"OpenAI Model: {os.getenv('OPENAI_MODEL', optional_vars['OPENAI_MODEL'])}")
+    logger.info(f"Watch Directory: {os.path.abspath(os.getenv('WATCH_DIR', optional_vars['WATCH_DIR']))}")
+    logger.info(f"Polling Interval: {os.getenv('POLLING_INTERVAL', optional_vars['POLLING_INTERVAL'])} seconds")
+    logger.info(f"Table Name: {os.getenv('DOCUMENTS_TABLE')}")
+    logger.info(f"File Extensions: {os.getenv('FILE_EXTENSIONS', optional_vars['FILE_EXTENSIONS'])}")
+    logger.info(f"Excluded Folders: {os.getenv('EXCLUDE_FOLDERS', optional_vars['EXCLUDE_FOLDERS'])}")
+    logger.info(f"Supabase URL: {os.getenv('SUPABASE_URL')}")
+    logger.info(f"Supabase Key: {'*' * len(os.getenv('SUPABASE_ANON_KEY', ''))}")
+    logger.info(f"OpenAI Key: {'*' * len(os.getenv('OPENAI_API_KEY', ''))}")
 
 class MarkdownProcessor:
     def __init__(self):
-        # Load environment variables
+        # Load and validate environment variables
+        load_env_vars()
+        
+        # Get environment variables
         self.supabase_url = os.getenv('SUPABASE_URL')
         self.supabase_key = os.getenv('SUPABASE_ANON_KEY')
         self.table_name = os.getenv('DOCUMENTS_TABLE')
@@ -51,20 +99,7 @@ class MarkdownProcessor:
         self.supabase = create_client(self.supabase_url, self.supabase_key)
         
         # Initialize OpenAI client
-        if not self.openai_api_key:
-            raise ValueError("OpenAI API key must be provided in environment variables")
         self.openai_client = OpenAI(api_key=self.openai_api_key)
-        
-        # Log startup configuration
-        logger.info("Starting Markdown Indexer with configuration:")
-        logger.info(f"Supabase URL: {self.supabase_url}")
-        logger.info(f"Supabase Key: {'*' * len(self.supabase_key)}")
-        logger.info(f"Watch Directory: {os.path.abspath(self.watch_dir)}")
-        logger.info(f"Polling Interval: {self.polling_interval} seconds")
-        logger.info(f"Table Name: {self.table_name}")
-        logger.info(f"File Extensions: {', '.join(self.allowed_extensions)}")
-        logger.info(f"OpenAI Model: {self.openai_model}")
-        logger.info(f"Excluded Folders: {', '.join(self.excluded_folders)}")
         
         # Count files in watch directory
         file_count = sum(1 for root, _, files in os.walk(self.watch_dir)
