@@ -179,11 +179,28 @@ class MarkdownProcessor:
             logger.error(f"Error calculating hash for {file_path}: {str(e)}")
             raise
 
+    def truncate_content(self, content: str, max_tokens: int = 7000) -> str:
+        """Truncate content to approximately max_tokens (rough estimation)."""
+        # Rough estimation: 1 token ≈ 4 characters for English text
+        max_chars = max_tokens * 4
+        
+        if len(content) <= max_chars:
+            return content
+            
+        # Truncate to max_chars and add a note
+        truncated = content[:max_chars]
+        truncated += f"\n\n[Content truncated. Original length: {len(content)} characters]"
+        logger.warning(f"Content truncated from {len(content)} to {len(truncated)} characters")
+        return truncated
+
     def process_markdown_file(self, file_path: str) -> Optional[Dict]:
         """Process a markdown file and return document data."""
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
+
+            # Truncate content if too long
+            content = self.truncate_content(content)
 
             # Generate embedding
             embedding = self.generate_embedding(content)
@@ -197,7 +214,9 @@ class MarkdownProcessor:
                 'path': file_path,
                 'last_modified': datetime.fromtimestamp(os.path.getmtime(file_path)).isoformat(),
                 'file_size': os.path.getsize(file_path),
-                'file_hash': file_hash  # Store hash in metadata
+                'file_hash': file_hash,  # Store hash in metadata
+                'content_length': len(content),  # Store content length
+                'is_truncated': len(content) > 7000 * 4  # Flag if content was truncated
             }
 
             return {
